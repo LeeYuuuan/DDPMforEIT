@@ -8,7 +8,7 @@ class VAE_AttentionBlock(nn.Module):
     def __init__(self, channels: int):
         super().__init__()
         self.groupnorm = nn.GroupNorm(32, channels)
-        self. attention = SelfAttention(1, channels)
+        self.attention = SelfAttention(1, channels)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x:(bs, channels(feature), h, w)
@@ -17,7 +17,7 @@ class VAE_AttentionBlock(nn.Module):
         n, c, h, w = x.shape
         
         # (bs, channels, h, w) -> (bs, channels, h*w)
-        x = x.view(n, c, h*w)        
+        x = x.view((n, c, h*w))        
         
         # (bs, channels, h*w) -> (bs, h*w, channels)
         x = x.transpose(-1, -2)
@@ -64,6 +64,69 @@ class VAE_ResidualBlock(nn.Module):
         x = self.conv_2(x)
         
         return x + self.residual_layer(residue) 
+    
+
+class VAE_Decoder(nn. Sequential):
+    
+    def __init__(self):
+        super().__init__(
+            
+            # bs, 4, h/8, w/8
+            nn.Conv2d(4, 4, kernel_size=1, padding=0),
+            
+            # (bs, 4, h/8, w/8) -> (bs, 512, h/8, w/8)
+            nn.Conv2d(4, 512, kernel_size=3, padding=1),
+            
+            VAE_ResidualBlock(512, 512),
+            
+            VAE_AttentionBlock(512),
+            
+            VAE_ResidualBlock(512, 512),
+            VAE_ResidualBlock(512, 512),
+            VAE_ResidualBlock(512, 512),
+            VAE_ResidualBlock(512, 512),
+            
+            # (bs, 512, h/8, w/8) -> (bs, 512, h/4, w/4)
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            VAE_ResidualBlock(512, 512),
+            VAE_ResidualBlock(512, 512),
+            VAE_ResidualBlock(512, 512),
+            
+            
+            # (bs, 512, h/4, w/4) -> (bs, 512, h/2, w/2)
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            # (bs, 512, h/2, h/2) -> (bs, 256, h/2, h/2)
+            VAE_ResidualBlock(512, 256),
+            VAE_ResidualBlock(256, 256),
+            VAE_ResidualBlock(256, 256),
+            
+             # (bs, 256, h/2, w/2) -> (bs, 256, h, w)
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(256, 256, kernel_size=3,padding=1),
+            # (bs, 256, h, h) -> (bs, 128, h, h)
+            VAE_ResidualBlock(256, 128),
+            VAE_ResidualBlock(128, 128),
+            VAE_ResidualBlock(128, 128),
+            
+            nn.GroupNorm(32, 128),
+            nn.SiLU(),
+            
+            nn.Conv2d(128, 1, kernel_size=3, padding=1)
+            
+        )
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (bs, 4, h/8, w/8)
+        
+        x /= 0.18215
+        
+        for module in self:
+            x = module(x)
+        
+        # (bs, 1, h, w)
+        return x
     
 
         
